@@ -21,14 +21,20 @@ fun PermissionsScreen(onPermissionsGranted: () -> Unit) {
     var hasAccessibilityPermission by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
     var showDisclosure by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            hasOverlayPermission = Settings.canDrawOverlays(context)
-            hasAccessibilityPermission = isAccessibilityServiceEnabled(context)
-            if (hasOverlayPermission && hasAccessibilityPermission) {
-                onPermissionsGranted()
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                hasOverlayPermission = Settings.canDrawOverlays(context)
+                hasAccessibilityPermission = isAccessibilityServiceEnabled(context)
+                if (hasOverlayPermission && hasAccessibilityPermission) {
+                    onPermissionsGranted()
+                }
             }
-            kotlinx.coroutines.delay(1000)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 

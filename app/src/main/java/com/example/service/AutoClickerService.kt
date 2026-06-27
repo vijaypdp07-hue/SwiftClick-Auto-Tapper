@@ -79,12 +79,13 @@ class AutoClickerService : AccessibilityService() {
     val playbackProgress: kotlinx.coroutines.flow.StateFlow<String> = _playbackProgress.asStateFlow()
 
     private fun startForegroundNotification() {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setContentTitle("Auto Clicker")
             .setContentText("Script is playing...")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .build()
-        startForeground(NOTIFICATION_ID, notification)
+        notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
     private fun updateForegroundNotification(progressText: String) {
@@ -98,7 +99,8 @@ class AutoClickerService : AccessibilityService() {
     }
 
     private fun stopForegroundNotification() {
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.cancel(NOTIFICATION_ID)
     }
 
     override fun onServiceConnected() {
