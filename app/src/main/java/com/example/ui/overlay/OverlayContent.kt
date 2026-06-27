@@ -140,6 +140,30 @@ fun WorkspaceContent(state: OverlayState) {
                 }
             }
         }
+        if (state.currentMode == com.example.OverlayService.ACTION_START_SINGLE) {
+            val placedPoint = state.singlePlacedPoint
+            if (placedPoint != null) {
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(placedPoint.x.roundToInt() - 24, placedPoint.y.roundToInt() - 24) }
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(Color.Red.copy(alpha = 0.5f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color.Red))
+                }
+            } else {
+                Text(
+                    text = "Tap anywhere to place the tap point",
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                        .padding(16.dp)
+                )
+            }
+        }
     }
 }
 
@@ -227,6 +251,22 @@ fun ControlPanelContent(
                             label = { Text("Jitter (±ms)") },
                             modifier = Modifier.fillMaxWidth().padding(4.dp)
                         )
+                        if (state.singlePlacedPoint != null) {
+                            Text(
+                                text = "Point placed at (${state.singlePlacedPoint!!.x.toInt()}, ${state.singlePlacedPoint!!.y.toInt()})",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                state.singlePlacedPoint = null
+                                android.widget.Toast.makeText(context, "Tap on screen to place point", android.widget.Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(4.dp)
+                        ) {
+                            Text("Place Tap Point")
+                        }
                     }
 
                     if (state.currentMode == com.example.OverlayService.ACTION_START_BUILDER) {
@@ -287,7 +327,11 @@ fun ControlPanelContent(
                                 return@TooltipIconButton
                             }
                             if (state.currentMode == com.example.OverlayService.ACTION_START_SINGLE) {
-                                val pt = state.singlePlacedPoint ?: Point(500f, 500f)
+                                val pt = state.singlePlacedPoint
+                                if (pt == null) {
+                                    android.widget.Toast.makeText(context, "Tap on screen to place a point first!", android.widget.Toast.LENGTH_SHORT).show()
+                                    return@TooltipIconButton
+                                }
                                 val event = com.example.data.GestureEvent("tap", listOf(pt), delayMs = state.singleIntervalMs, jitterMs = state.singleJitterMs)
                                 instance.playScript(ScriptData(events = listOf(event)), loop = state.singleTapCount == 0, count = state.singleTapCount)
                             } else {
