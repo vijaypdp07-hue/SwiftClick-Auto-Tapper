@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Auto Clicker</string>
+    <string name="accessibility_service_description">Auto Clicker uses the Accessibility Service to simulate taps and swipes on your screen based on the scripts you create. It does not collect or transmit any personal data.</string>
+</resources>
