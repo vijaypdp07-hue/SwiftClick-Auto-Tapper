@@ -64,9 +64,13 @@ fun WorkspaceContent(state: OverlayState) {
         modifier = Modifier
             .fillMaxSize()
             .background(
-                if (state.isAddingPoint || state.currentMode == com.example.OverlayService.ACTION_START_SINGLE || state.currentMode == com.example.OverlayService.ACTION_START_SWIPE) 
-                    Color.Black.copy(alpha = 0.3f) 
-                else Color.Transparent
+                when {
+                    !state.isWorkspaceVisible -> Color.Transparent
+                    state.isAddingPoint -> Color.Black.copy(alpha = 0.3f)
+                    state.currentMode == com.example.OverlayService.ACTION_START_SINGLE -> Color.Black.copy(alpha = 0.3f)
+                    state.currentMode == com.example.OverlayService.ACTION_START_SWIPE -> Color.Black.copy(alpha = 0.3f)
+                    else -> Color.Transparent
+                }
             )
             .pointerInput(state.isAddingPoint, state.currentMode) {
                 if (state.isAddingPoint) {

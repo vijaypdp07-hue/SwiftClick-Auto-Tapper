@@ -85,6 +85,11 @@ class AutoClickerService : AccessibilityService() {
             .setContentText("Script is playing...")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .build()
+        try {
+            startForeground(NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            android.util.Log.e("AutoClickerService", "Failed to start foreground", e)
+        }
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
@@ -100,6 +105,11 @@ class AutoClickerService : AccessibilityService() {
 
     private fun stopForegroundNotification() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } catch (e: Exception) {
+            android.util.Log.e("AutoClickerService", "Failed to stop foreground", e)
+        }
         notificationManager.cancel(NOTIFICATION_ID)
     }
 

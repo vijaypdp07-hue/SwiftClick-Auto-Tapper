@@ -10,6 +10,7 @@ class OverlayState {
     var singlePlacedPoint by mutableStateOf<Point?>(null)
     var isAddingSwipe by mutableStateOf(false)
     var swipeStep by mutableStateOf(0)
+    var isWorkspaceVisible by mutableStateOf(true)
     
     var currentMode by mutableStateOf("")
     var scriptJson by mutableStateOf<String?>(null)

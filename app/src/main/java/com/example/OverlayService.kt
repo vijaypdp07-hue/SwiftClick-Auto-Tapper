@@ -80,6 +80,7 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         
         overlayState.onInterceptToggles = { intercept ->
+            overlayState.isWorkspaceVisible = intercept
             updateWorkspaceTouchable(intercept)
         }
     }
