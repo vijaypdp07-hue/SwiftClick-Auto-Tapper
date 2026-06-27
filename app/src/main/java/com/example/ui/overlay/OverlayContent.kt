@@ -3,6 +3,7 @@ package com.example.ui.overlay
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -60,6 +61,8 @@ fun TooltipIconButton(
 
 @Composable
 fun WorkspaceContent(state: OverlayState) {
+    val activePoints by (AutoClickerService.instance?.activePoints ?: kotlinx.coroutines.flow.MutableStateFlow(emptyList())).collectAsState()
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -73,7 +76,53 @@ fun WorkspaceContent(state: OverlayState) {
                 }
             )
             .pointerInput(state.isAddingPoint, state.currentMode) {
-                if (state.isAddingPoint) {
+                if (state.currentMode == com.example.OverlayService.ACTION_START_RECORDER) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val down = awaitFirstDown()
+                            val downTime = System.currentTimeMillis()
+                            val startPt = Point(down.position.x, down.position.y)
+                            if (state.recordingStartTime == 0L) {
+                                state.recordingStartTime = downTime
+                            }
+                            
+                            var upEvent: androidx.compose.ui.input.pointer.PointerInputChange? = null
+                            var lastMove: androidx.compose.ui.input.pointer.PointerInputChange? = null
+                            
+                            do {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id }
+                                if (change != null) {
+                                    if (change.pressed) {
+                                        lastMove = change
+                                    } else {
+                                        upEvent = change
+                                    }
+                                }
+                            } while (upEvent == null && event.changes.any { it.pressed })
+                            
+                            val upTime = System.currentTimeMillis()
+                            val endPt = upEvent?.let { Point(it.position.x, it.position.y) } ?: lastMove?.let { Point(it.position.x, it.position.y) } ?: startPt
+                            
+                            val delay = downTime - state.recordingStartTime
+                            val duration = upTime - downTime
+                            
+                            val distance = kotlin.math.hypot(endPt.x - startPt.x, endPt.y - startPt.y)
+                            val gestureType = if (distance > 20) "swipe" else "tap"
+                            val points = if (gestureType == "swipe") listOf(startPt, endPt) else listOf(startPt)
+                            
+                            if (state.isRecording) {
+                                state.recordedEvents = state.recordedEvents + com.example.data.GestureEvent(
+                                    type = gestureType,
+                                    points = points,
+                                    delayMs = delay,
+                                    durationMs = duration
+                                )
+                            }
+                            state.recordingStartTime = upTime // Next delay is relative to this up time
+                        }
+                    }
+                } else if (state.isAddingPoint) {
                     detectTapGestures { offset ->
                         state.pendingPoints = state.pendingPoints + Point(offset.x, offset.y)
                         val actionType = state.pendingActionType
@@ -168,6 +217,21 @@ fun WorkspaceContent(state: OverlayState) {
                 )
             }
         }
+        
+        if (state.showVisualIndicators && activePoints.isNotEmpty()) {
+            for (point in activePoints) {
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(point.x.roundToInt() - 16, point.y.roundToInt() - 16) }
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Color.Yellow.copy(alpha = 0.7f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color.White))
+                }
+            }
+        }
     }
 }
 
@@ -217,6 +281,7 @@ fun ControlPanelContent(
                     val title = when (state.currentMode) {
                         com.example.OverlayService.ACTION_START_PLAYBACK -> "Playback"
                         com.example.OverlayService.ACTION_START_SINGLE -> "Single Tap"
+                        com.example.OverlayService.ACTION_START_RECORDER -> "Macro Recorder"
                         else -> "Builder Controls"
                     }
                     Text(title, fontWeight = FontWeight.Bold)
@@ -233,6 +298,47 @@ fun ControlPanelContent(
                         )
                         if (playbackProgress.isNotEmpty()) {
                             Text(playbackProgress, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    
+                    if (state.currentMode == com.example.OverlayService.ACTION_START_RECORDER) {
+                        if (state.isRecording) {
+                            Text("Recording in progress...", color = Color.Red)
+                            Text("Events captured: ${state.recordedEvents.size}")
+                            Button(onClick = {
+                                state.isRecording = false
+                                state.onInterceptToggles?.invoke(false)
+                            }) {
+                                Text("Stop Recording")
+                            }
+                        } else {
+                            if (state.recordedEvents.isNotEmpty()) {
+                                Text("Recorded ${state.recordedEvents.size} events")
+                                Button(onClick = {
+                                    val scriptData = ScriptData(events = state.recordedEvents)
+                                    val jsonString = Json.encodeToString(scriptData)
+                                    val entity = com.example.data.ScriptEntity(
+                                        name = "Recorded Script ${System.currentTimeMillis()}",
+                                        gesturesJson = jsonString
+                                    )
+                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                        com.example.data.AppDatabase.getDatabase(context).scriptDao().insertScript(entity)
+                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                            android.widget.Toast.makeText(context, "Script Saved!", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }) {
+                                    Text("Save Script")
+                                }
+                            }
+                            Button(onClick = {
+                                state.recordedEvents = emptyList()
+                                state.recordingStartTime = 0L
+                                state.isRecording = true
+                                state.onInterceptToggles?.invoke(true)
+                            }) {
+                                Text("Start Recording")
+                            }
                         }
                     }
                     
@@ -273,7 +379,14 @@ fun ControlPanelContent(
                         }
                     }
 
-                    if (state.currentMode == com.example.OverlayService.ACTION_START_BUILDER) {
+                    if (state.currentMode == com.example.OverlayService.ACTION_START_BUILDER || state.currentMode == com.example.OverlayService.ACTION_START_MULTI) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Simultaneous:", style = MaterialTheme.typography.bodySmall)
+                            Switch(
+                                checked = state.scriptMode == "simultaneous",
+                                onCheckedChange = { state.scriptMode = if (it) "simultaneous" else "sequential" }
+                            )
+                        }
                         Row {
                             TooltipIconButton(text = "Add Tap", onClick = { state.startAddingPoint("tap") }) {
                                 Icon(Icons.Default.Add, contentDescription = "Add Tap")
@@ -298,17 +411,19 @@ fun ControlPanelContent(
                             }
                             if (state.events.isNotEmpty()) {
                                 TooltipIconButton(text = "Test Last Step", onClick = {
-                                    AutoClickerService.instance?.playScript(ScriptData(events = listOf(state.events.last())))
+                                    AutoClickerService.instance?.playScript(ScriptData(events = listOf(state.events.last()), mode = state.scriptMode))
                                 }) {
                                     Icon(Icons.Default.PlayArrow, contentDescription = "Test Last Step")
                                 }
                             }
                             TooltipIconButton(text = "Save Script", onClick = {
-                                if (state.events.size > 3) {
-                                    android.widget.Toast.makeText(context, "Free tier cap: Max 3 steps. Truncating.", android.widget.Toast.LENGTH_SHORT).show()
-                                    // TODO: PREMIUM_GATE
+                                val finalEvents = if (!state.isPremium && state.events.size > 3) {
+                                    android.widget.Toast.makeText(context, "Free tier cap: Max 3 steps saved.", android.widget.Toast.LENGTH_SHORT).show()
+                                    state.events.take(3)
+                                } else {
+                                    state.events
                                 }
-                                val scriptData = ScriptData(events = state.events.take(3)) // apply cap
+                                val scriptData = ScriptData(events = finalEvents, mode = state.scriptMode)
                                 val jsonString = Json.encodeToString(scriptData)
                                 val entity = com.example.data.ScriptEntity(
                                     name = "Script ${System.currentTimeMillis()}",
@@ -316,6 +431,9 @@ fun ControlPanelContent(
                                 )
                                 kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                                     com.example.data.AppDatabase.getDatabase(context).scriptDao().insertScript(entity)
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        android.widget.Toast.makeText(context, "Saved!", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             }) {
                                 Icon(Icons.Default.Check, contentDescription = "Save")
@@ -352,7 +470,7 @@ fun ControlPanelContent(
                                 }
                                 
                                 eventsToPlay?.let { events ->
-                                    instance.playScript(ScriptData(events = events))
+                                    instance.playScript(ScriptData(events = events, mode = state.scriptMode))
                                 }
                             }
                         }) {
@@ -406,6 +524,8 @@ fun PlaybackPanel(
     onDragEnd: () -> Unit = {}
 ) {
     var isExpanded by remember { mutableStateOf(false) }
+    var loopCount by remember { mutableStateOf(0) } // 0 = infinite
+    var startDelay by remember { mutableStateOf(0) } // seconds
     val playbackState by (com.example.service.AutoClickerService.instance?.playbackState ?: kotlinx.coroutines.flow.MutableStateFlow(com.example.service.AutoClickerService.State.IDLE)).collectAsState()
     val playbackProgress by (com.example.service.AutoClickerService.instance?.playbackProgress ?: kotlinx.coroutines.flow.MutableStateFlow("")).collectAsState()
 
@@ -431,7 +551,7 @@ fun PlaybackPanel(
             }
         } else {
             Column(
-                modifier = Modifier.padding(16.dp).wrapContentSize(),
+                modifier = Modifier.padding(16.dp).width(200.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(state.currentScriptName ?: "Playback", fontWeight = FontWeight.Bold)
@@ -439,8 +559,30 @@ fun PlaybackPanel(
                     Text(playbackProgress, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
                 
+                if (playbackState == com.example.service.AutoClickerService.State.IDLE) {
+                    OutlinedTextField(
+                        value = loopCount.toString(),
+                        onValueChange = { loopCount = it.toIntOrNull() ?: 0 },
+                        label = { Text("Loops (0=inf)") },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    )
+                    OutlinedTextField(
+                        value = startDelay.toString(),
+                        onValueChange = { startDelay = it.toIntOrNull() ?: 0 },
+                        label = { Text("Start Delay (sec)") },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Visuals:", style = MaterialTheme.typography.bodySmall)
+                        Switch(
+                            checked = state.showVisualIndicators,
+                            onCheckedChange = { state.showVisualIndicators = it }
+                        )
+                    }
+                }
+                
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (playbackState == com.example.service.AutoClickerService.State.PLAYING) {
+                    if (playbackState == com.example.service.AutoClickerService.State.PLAYING || playbackState == com.example.service.AutoClickerService.State.STARTING) {
                         TooltipIconButton(text = "Pause", onClick = { com.example.service.AutoClickerService.instance?.pauseScript() }) {
                             Icon(Icons.Default.Pause, contentDescription = "Pause")
                         }
@@ -461,7 +603,12 @@ fun PlaybackPanel(
                                         }
                                     }
                                     eventsToPlay?.let { events ->
-                                        instance.playScript(com.example.data.ScriptData(events = events), loop = true)
+                                        instance.playScript(
+                                            com.example.data.ScriptData(events = events), 
+                                            loop = loopCount == 0, 
+                                            count = loopCount,
+                                            startDelaySec = startDelay
+                                        )
                                     }
                                 }
                             }

@@ -30,7 +30,30 @@ import com.example.OverlayService
 @Composable
 fun MainScreen(viewModel: MainViewModel = viewModel()) {
     val scripts by viewModel.allScripts.collectAsState()
+    val isPremium by viewModel.isPremium.collectAsState()
     val context = LocalContext.current
+    
+    var showPremiumDialog by remember { mutableStateOf(false) }
+    
+    if (showPremiumDialog) {
+        AlertDialog(
+            onDismissRequest = { showPremiumDialog = false },
+            title = { Text("Upgrade to Premium 💎") },
+            text = { Text("Unlock unlimited scripts, the powerful Macro Recorder, and remove all ads for $4.99!") },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.upgradeToPremium()
+                    showPremiumDialog = false
+                    Toast.makeText(context, "Welcome to Premium!", Toast.LENGTH_SHORT).show()
+                }) {
+                    Text("Upgrade Now")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPremiumDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
     
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -40,10 +63,23 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
         }
     }
 
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            viewModel.importScript(it, context)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Auto Clicker") },
+                actions = {
+                    IconButton(onClick = { importLauncher.launch("application/json") }) {
+                        Icon(Icons.Default.FileCopy, contentDescription = "Import Script")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -52,12 +88,11 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
         },
         floatingActionButton = {
             FloatingActionButton(onClick = {
-                if (scripts.size >= 3) {
-                    Toast.makeText(context, "Free tier cap: Max 3 saved scripts.", Toast.LENGTH_SHORT).show()
-                    // TODO: PREMIUM_GATE show premium upgrade UI
+                if (!isPremium && scripts.size >= 3) {
+                    showPremiumDialog = true
                     return@FloatingActionButton
                 }
-                OverlayService.startManualBuilder(context)
+                OverlayService.startManualBuilder(context, isPremium)
             }) {
                 Icon(Icons.Default.Add, contentDescription = "New Script")
             }
@@ -79,24 +114,38 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     Text("Quick Tools", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
-                        onClick = { OverlayService.startSinglePointMode(context) },
+                        onClick = { OverlayService.startSinglePointMode(context, isPremium) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Single-Point Click")
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(
-                        onClick = { OverlayService.startMultiPointMode(context) },
+                        onClick = { OverlayService.startMultiPointMode(context, isPremium) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Multi-Point Click")
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(
-                        onClick = { OverlayService.startSwipeMode(context) },
+                        onClick = { OverlayService.startSwipeMode(context, isPremium) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Auto Swipe")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(
+                        onClick = { 
+                            if (!isPremium) {
+                                showPremiumDialog = true
+                            } else {
+                                OverlayService.startRecorder(context, isPremium)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                    ) {
+                        Text(if (isPremium) "Macro Recorder" else "Macro Recorder (Premium 💎)")
                     }
                 }
             }
@@ -120,13 +169,12 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                     items(scripts) { script ->
                         ScriptItem(
                             script = script,
-                            onPlay = { OverlayService.startScriptPlayback(context, script) },
+                            onPlay = { OverlayService.startScriptPlayback(context, script, isPremium) },
                             onDelete = { viewModel.delete(script) },
                             onRename = { newName -> viewModel.update(script.copy(name = newName)) },
                             onDuplicate = { 
-                                if (scripts.size >= 3) {
-                                    Toast.makeText(context, "Free tier cap: Max 3 saved scripts.", Toast.LENGTH_SHORT).show()
-                                    // TODO: PREMIUM_GATE show premium upgrade UI
+                                if (!isPremium && scripts.size >= 3) {
+                                    showPremiumDialog = true
                                 } else {
                                     viewModel.insert(script.copy(id = java.util.UUID.randomUUID().toString(), name = script.name + " (Copy)")) 
                                 }
@@ -140,7 +188,9 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                 }
             }
             
-            BannerAdPlaceholder()
+            if (!isPremium) {
+                BannerAdPlaceholder()
+            }
         }
     }
 }

@@ -34,26 +34,33 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
         const val ACTION_START_BUILDER = "START_BUILDER"
         const val ACTION_START_PLAYBACK = "START_PLAYBACK"
         
+        const val ACTION_START_RECORDER = "START_RECORDER"
+        
         const val EXTRA_SCRIPT_JSON = "EXTRA_SCRIPT_JSON"
         const val EXTRA_SCRIPT_NAME = "EXTRA_SCRIPT_NAME"
+        const val EXTRA_IS_PREMIUM = "EXTRA_IS_PREMIUM"
 
-        fun startSinglePointMode(context: Context) {
-            context.startService(Intent(context, OverlayService::class.java).setAction(ACTION_START_SINGLE))
+        fun startSinglePointMode(context: Context, isPremium: Boolean = false) {
+            context.startService(Intent(context, OverlayService::class.java).setAction(ACTION_START_SINGLE).putExtra(EXTRA_IS_PREMIUM, isPremium))
         }
-        fun startMultiPointMode(context: Context) {
-            context.startService(Intent(context, OverlayService::class.java).setAction(ACTION_START_MULTI))
+        fun startMultiPointMode(context: Context, isPremium: Boolean = false) {
+            context.startService(Intent(context, OverlayService::class.java).setAction(ACTION_START_MULTI).putExtra(EXTRA_IS_PREMIUM, isPremium))
         }
-        fun startSwipeMode(context: Context) {
-            context.startService(Intent(context, OverlayService::class.java).setAction(ACTION_START_SWIPE))
+        fun startSwipeMode(context: Context, isPremium: Boolean = false) {
+            context.startService(Intent(context, OverlayService::class.java).setAction(ACTION_START_SWIPE).putExtra(EXTRA_IS_PREMIUM, isPremium))
         }
-        fun startManualBuilder(context: Context) {
-            context.startService(Intent(context, OverlayService::class.java).setAction(ACTION_START_BUILDER))
+        fun startManualBuilder(context: Context, isPremium: Boolean = false) {
+            context.startService(Intent(context, OverlayService::class.java).setAction(ACTION_START_BUILDER).putExtra(EXTRA_IS_PREMIUM, isPremium))
         }
-        fun startScriptPlayback(context: Context, script: ScriptEntity) {
+        fun startRecorder(context: Context, isPremium: Boolean = false) {
+            context.startService(Intent(context, OverlayService::class.java).setAction(ACTION_START_RECORDER).putExtra(EXTRA_IS_PREMIUM, isPremium))
+        }
+        fun startScriptPlayback(context: Context, script: ScriptEntity, isPremium: Boolean = false) {
             val intent = Intent(context, OverlayService::class.java).apply {
                 action = ACTION_START_PLAYBACK
                 putExtra(EXTRA_SCRIPT_JSON, script.gesturesJson)
                 putExtra(EXTRA_SCRIPT_NAME, script.name)
+                putExtra(EXTRA_IS_PREMIUM, isPremium)
             }
             context.startService(intent) 
         }
@@ -93,6 +100,7 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
         overlayState.currentMode = action
         overlayState.scriptJson = intent?.getStringExtra(EXTRA_SCRIPT_JSON)
         overlayState.currentScriptName = intent?.getStringExtra(EXTRA_SCRIPT_NAME)
+        overlayState.isPremium = intent?.getBooleanExtra(EXTRA_IS_PREMIUM, false) ?: false
         showOverlays()
         
         return START_NOT_STICKY

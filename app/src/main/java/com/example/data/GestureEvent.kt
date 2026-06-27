@@ -22,5 +22,6 @@ data class ScriptData(
     val name: String = "Untitled Script",
     val createdDate: Long = System.currentTimeMillis(),
     val appVersion: String = "1.0",
-    val events: List<GestureEvent>
+    val events: List<GestureEvent>,
+    val mode: String = "sequential" // "sequential" or "simultaneous"
 )

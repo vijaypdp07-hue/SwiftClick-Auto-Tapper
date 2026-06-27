@@ -31,7 +31,7 @@ class AutoClickerService : AccessibilityService() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
     private var playbackJob: Job? = null
-    enum class State { IDLE, PLAYING, PAUSED }
+    enum class State { IDLE, STARTING, PLAYING, PAUSED }
     private val _playbackState = kotlinx.coroutines.flow.MutableStateFlow(State.IDLE)
     val playbackState: kotlinx.coroutines.flow.StateFlow<State> = _playbackState.asStateFlow()
     
@@ -77,6 +77,9 @@ class AutoClickerService : AccessibilityService() {
 
     private val _playbackProgress = kotlinx.coroutines.flow.MutableStateFlow("")
     val playbackProgress: kotlinx.coroutines.flow.StateFlow<String> = _playbackProgress.asStateFlow()
+    
+    private val _activePoints = kotlinx.coroutines.flow.MutableStateFlow(emptyList<com.example.data.Point>())
+    val activePoints: kotlinx.coroutines.flow.StateFlow<List<com.example.data.Point>> = _activePoints.asStateFlow()
 
     private fun startForegroundNotification() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -132,42 +135,91 @@ class AutoClickerService : AccessibilityService() {
         stopScript()
     }
 
-    fun playScript(scriptData: ScriptData, loop: Boolean = false, count: Int = 0) {
+    fun playScript(scriptData: ScriptData, loop: Boolean = false, count: Int = 0, startDelaySec: Int = 0) {
         if (_playbackState.value != State.IDLE) return
-        _playbackState.value = State.PLAYING
+        _playbackState.value = State.STARTING
         _playbackProgress.value = "Starting..."
         startForegroundNotification()
         playbackJob = serviceScope.launch {
+            if (startDelaySec > 0) {
+                for (i in startDelaySec downTo 1) {
+                    checkPause()
+                    if (!isActive) break
+                    _playbackProgress.value = "Starting in $i..."
+                    delay(1000)
+                }
+            }
+            
+            _playbackState.value = State.PLAYING
             var iterations = 0
             do {
-                var stepIndex = 1
-                val totalSteps = scriptData.events.size
-                for (event in scriptData.events) {
-                    val progressText = if (loop) "Loop ${iterations + 1} / ∞, Step $stepIndex / $totalSteps" else "Loop ${iterations + 1} / $count, Step $stepIndex / $totalSteps"
+                if (scriptData.mode == "simultaneous") {
+                    val progressText = if (loop) "Loop ${iterations + 1} / ∞ (Simultaneous)" else "Loop ${iterations + 1} / $count (Simultaneous)"
                     _playbackProgress.value = progressText
                     updateForegroundNotification(progressText)
                     checkPause()
                     if (!isActive) break
-                    var currentDelay = event.delayMs
-                    event.jitterMs?.let { jitter ->
-                        if (jitter > 0) {
-                            val range = -jitter..jitter
-                            currentDelay += range.random()
-                            if (currentDelay < 0) currentDelay = 0
+                    
+                    val builder = GestureDescription.Builder()
+                    var maxDuration = 0L
+                    var currentStartTime = 0L
+                    for ((index, event) in scriptData.events.withIndex()) {
+                        // In simultaneous mode, if it's manually built, they might all have delayMs=0 or delayMs from the builder.
+                        // We stagger them by their delayMs, or fire exactly same time if delay is 0.
+                        currentStartTime += event.delayMs
+                        val path = Path()
+                        val duration = if (event.type == "swipe") event.durationMs ?: 300L else 50L
+                        if (event.type == "tap" && event.points.isNotEmpty()) {
+                            path.moveTo(event.points[0].x, event.points[0].y)
+                        } else if (event.type == "swipe" && event.points.size >= 2) {
+                            path.moveTo(event.points[0].x, event.points[0].y)
+                            path.lineTo(event.points[1].x, event.points[1].y)
+                        }
+                        
+                        // Limit to 10 strokes (Android limit)
+                        if (index < 10) {
+                            builder.addStroke(StrokeDescription(path, currentStartTime, duration))
+                        }
+                        if (currentStartTime + duration > maxDuration) {
+                            maxDuration = currentStartTime + duration
                         }
                     }
-                    var remainingDelay = currentDelay
-                    while (remainingDelay > 0) {
+                    if (scriptData.events.isNotEmpty()) {
+                        _activePoints.value = scriptData.events.flatMap { it.points }
+                        dispatchGesture(builder.build(), null, null)
+                        delay(maxDuration + 50L) // Wait for all to finish
+                        _activePoints.value = emptyList()
+                    }
+                } else {
+                    var stepIndex = 1
+                    val totalSteps = scriptData.events.size
+                    for (event in scriptData.events) {
+                        val progressText = if (loop) "Loop ${iterations + 1} / ∞, Step $stepIndex / $totalSteps" else "Loop ${iterations + 1} / $count, Step $stepIndex / $totalSteps"
+                        _playbackProgress.value = progressText
+                        updateForegroundNotification(progressText)
                         checkPause()
                         if (!isActive) break
-                        val step = minOf(50L, remainingDelay)
-                        delay(step)
-                        remainingDelay -= step
+                        var currentDelay = event.delayMs
+                        event.jitterMs?.let { jitter ->
+                            if (jitter > 0) {
+                                val range = -jitter..jitter
+                                currentDelay += range.random()
+                                if (currentDelay < 0) currentDelay = 0
+                            }
+                        }
+                        var remainingDelay = currentDelay
+                        while (remainingDelay > 0) {
+                            checkPause()
+                            if (!isActive) break
+                            val step = minOf(50L, remainingDelay)
+                            delay(step)
+                            remainingDelay -= step
+                        }
+                        checkPause()
+                        if (!isActive) break
+                        dispatchGestureEvent(event)
+                        stepIndex++
                     }
-                    checkPause()
-                    if (!isActive) break
-                    dispatchGestureEvent(event)
-                    stepIndex++
                 }
                 iterations++
             } while ((loop || (count > 0 && iterations < count)) && isActive)
@@ -187,6 +239,7 @@ class AutoClickerService : AccessibilityService() {
 
     private suspend fun dispatchGestureEvent(event: com.example.data.GestureEvent) {
         android.util.Log.d("AutoClicker", "Dispatching event: $event")
+        _activePoints.value = event.points
         var success = false
         if (event.type == "tap" && event.points.isNotEmpty()) {
             val point = event.points[0]
@@ -229,5 +282,6 @@ class AutoClickerService : AccessibilityService() {
             android.util.Log.d("AutoClicker", "dispatchGesture (swipe) returned: $success")
             delay(duration) // Wait for swipe to finish before next step
         }
+        _activePoints.value = emptyList()
     }
 }

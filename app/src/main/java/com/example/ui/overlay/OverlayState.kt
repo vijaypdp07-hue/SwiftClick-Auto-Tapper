@@ -15,6 +15,16 @@ class OverlayState {
     var currentMode by mutableStateOf("")
     var scriptJson by mutableStateOf<String?>(null)
     var currentScriptName by mutableStateOf<String?>(null)
+    var isPremium by mutableStateOf(false)
+    
+    // Recorder state
+    var isRecording by mutableStateOf(false)
+    var recordingStartTime by mutableStateOf(0L)
+    var recordedEvents by mutableStateOf(listOf<GestureEvent>())
+    
+    // Playback Visualization
+    var showVisualIndicators by mutableStateOf(true)
+    var activePlaybackPoints by mutableStateOf(listOf<Point>())
     
     // Single Point Config
     var singleIntervalMs by mutableStateOf(1000L)
@@ -22,6 +32,7 @@ class OverlayState {
     var singleTapCount by mutableStateOf(0) // 0 = infinite
     
     // For manual builder
+    var scriptMode by mutableStateOf("sequential")
     var isAddingPoint by mutableStateOf(false)
         private set
         

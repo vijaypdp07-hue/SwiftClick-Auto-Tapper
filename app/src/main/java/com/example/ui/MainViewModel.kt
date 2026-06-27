@@ -9,6 +9,7 @@ import com.example.data.ScriptRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -38,6 +39,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository.delete(script)
     }
     
+    private val _isPremium = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val isPremium: StateFlow<Boolean> = _isPremium.asStateFlow()
+
+    fun upgradeToPremium() {
+        _isPremium.value = true
+    }
+
     private var pendingExportScript: ScriptEntity? = null
     
     fun setPendingExport(script: ScriptEntity) {
@@ -55,6 +63,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 e.printStackTrace()
             }
             pendingExportScript = null
+        }
+    }
+
+    fun importScript(uri: android.net.Uri, context: android.content.Context) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                if (!_isPremium.value && allScripts.value.size >= 3) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        android.widget.Toast.makeText(context, "Free tier cap: Max 3 saved scripts.", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+                val jsonString = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                if (jsonString != null) {
+                    // Try to decode to ensure it's valid
+                    val decoded = kotlinx.serialization.json.Json.decodeFromString<com.example.data.ScriptData>(jsonString)
+                    
+                    val finalJson = if (!_isPremium.value && decoded.events.size > 3) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            android.widget.Toast.makeText(context, "Free tier: Truncated to 3 steps.", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        kotlinx.serialization.json.Json.encodeToString(decoded.copy(events = decoded.events.take(3)))
+                    } else {
+                        jsonString
+                    }
+                    
+                    val entity = ScriptEntity(
+                        name = "Imported Script ${System.currentTimeMillis()}",
+                        gesturesJson = finalJson
+                    )
+                    insert(entity)
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        android.widget.Toast.makeText(context, "Script Imported!", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Failed to import script.", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 }
