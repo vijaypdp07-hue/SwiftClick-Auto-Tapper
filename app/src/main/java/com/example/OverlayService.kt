@@ -113,7 +113,10 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
+            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -190,14 +193,23 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
     }
     
     private fun updateWorkspaceTouchable(touchable: Boolean) {
-        val view = workspaceView ?: return
-        val params = view.layoutParams as WindowManager.LayoutParams
+        val workspace = workspaceView ?: return
+        val wParams = workspace.layoutParams as WindowManager.LayoutParams
         if (touchable) {
-            params.flags = params.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+            wParams.flags = wParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
         } else {
-            params.flags = params.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+            wParams.flags = wParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         }
-        windowManager.updateViewLayout(view, params)
+        windowManager.updateViewLayout(workspace, wParams)
+
+        val control = controlView ?: return
+        val cParams = control.layoutParams as WindowManager.LayoutParams
+        if (touchable) {
+            cParams.flags = cParams.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        } else {
+            cParams.flags = cParams.flags and WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+        }
+        windowManager.updateViewLayout(control, cParams)
     }
 
     private fun removeOverlays() {

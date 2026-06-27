@@ -7,6 +7,10 @@ import com.example.data.Point
 import com.example.data.GestureEvent
 
 class OverlayState {
+    var singlePlacedPoint by mutableStateOf<Point?>(null)
+    var isAddingSwipe by mutableStateOf(false)
+    var swipeStep by mutableStateOf(0)
+    
     var currentMode by mutableStateOf("")
     var scriptJson by mutableStateOf<String?>(null)
     var currentScriptName by mutableStateOf<String?>(null)
@@ -27,6 +31,7 @@ class OverlayState {
         pendingActionType = actionType
         isAddingPoint = true
         pendingPoints = emptyList()
+        swipeStep = 0
         onInterceptToggles?.invoke(true)
     }
     

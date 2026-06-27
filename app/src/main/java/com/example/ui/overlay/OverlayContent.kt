@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -62,8 +63,12 @@ fun WorkspaceContent(state: OverlayState) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (state.isAddingPoint) Color.Black.copy(alpha = 0.3f) else Color.Transparent)
-            .pointerInput(state.isAddingPoint) {
+            .background(
+                if (state.isAddingPoint || state.currentMode == com.example.OverlayService.ACTION_START_SINGLE || state.currentMode == com.example.OverlayService.ACTION_START_SWIPE) 
+                    Color.Black.copy(alpha = 0.3f) 
+                else Color.Transparent
+            )
+            .pointerInput(state.isAddingPoint, state.currentMode) {
                 if (state.isAddingPoint) {
                     detectTapGestures { offset ->
                         state.pendingPoints = state.pendingPoints + Point(offset.x, offset.y)
@@ -77,6 +82,28 @@ fun WorkspaceContent(state: OverlayState) {
                                 durationMs = if (actionType == "swipe") 300L else null
                             )
                             state.finishAddingPoint()
+                        }
+                    }
+                } else if (state.currentMode == com.example.OverlayService.ACTION_START_SINGLE) {
+                    detectTapGestures { offset ->
+                        state.pendingPoints = listOf(Point(offset.x, offset.y))
+                        state.singlePlacedPoint = Point(offset.x, offset.y)
+                    }
+                } else if (state.currentMode == com.example.OverlayService.ACTION_START_SWIPE) {
+                    detectTapGestures { offset ->
+                        if (state.swipeStep == 0) {
+                            state.pendingPoints = listOf(Point(offset.x, offset.y))
+                            state.swipeStep = 1
+                        } else {
+                            state.pendingPoints = state.pendingPoints + Point(offset.x, offset.y)
+                            state.events = state.events + com.example.data.GestureEvent(
+                                type = "swipe",
+                                points = state.pendingPoints,
+                                delayMs = state.currentDelayMs,
+                                durationMs = 300L
+                            )
+                            state.pendingPoints = emptyList()
+                            state.swipeStep = 0
                         }
                     }
                 }
@@ -127,6 +154,8 @@ fun ControlPanelContent(
     var panelWidth by remember { mutableStateOf(240.dp) }
     var panelHeight by remember { mutableStateOf(350.dp) }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val playbackState by (com.example.service.AutoClickerService.instance?.playbackState ?: kotlinx.coroutines.flow.MutableStateFlow(com.example.service.AutoClickerService.State.IDLE)).collectAsState()
+    val playbackProgress by (com.example.service.AutoClickerService.instance?.playbackProgress ?: kotlinx.coroutines.flow.MutableStateFlow("")).collectAsState()
 
     Card(
         modifier = Modifier
@@ -163,6 +192,21 @@ fun ControlPanelContent(
                         else -> "Builder Controls"
                     }
                     Text(title, fontWeight = FontWeight.Bold)
+                    
+                    if (playbackState != com.example.service.AutoClickerService.State.IDLE) {
+                        Text(
+                            text = when (playbackState) {
+                                com.example.service.AutoClickerService.State.PLAYING -> "Playing..."
+                                com.example.service.AutoClickerService.State.PAUSED -> "Paused"
+                                else -> "Ready"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        if (playbackProgress.isNotEmpty()) {
+                            Text(playbackProgress, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                     
                     if (state.currentMode == com.example.OverlayService.ACTION_START_SINGLE) {
                         OutlinedTextField(
@@ -237,10 +281,15 @@ fun ControlPanelContent(
                     
                     Row {
                         TooltipIconButton(text = "Play", onClick = { 
+                            val instance = AutoClickerService.instance
+                            if (instance == null) {
+                                android.util.Log.e("AutoClicker", "AccessibilityService instance is null! Cannot play.")
+                                return@TooltipIconButton
+                            }
                             if (state.currentMode == com.example.OverlayService.ACTION_START_SINGLE) {
-                                val pt = Point(500f, 500f) // Dummy point
+                                val pt = state.singlePlacedPoint ?: Point(500f, 500f)
                                 val event = com.example.data.GestureEvent("tap", listOf(pt), delayMs = state.singleIntervalMs, jitterMs = state.singleJitterMs)
-                                AutoClickerService.instance?.playScript(ScriptData(events = listOf(event)), loop = state.singleTapCount == 0, count = state.singleTapCount)
+                                instance.playScript(ScriptData(events = listOf(event)), loop = state.singleTapCount == 0, count = state.singleTapCount)
                             } else {
                                 val eventsToPlay = if (state.currentMode == com.example.OverlayService.ACTION_START_PLAYBACK) {
                                     state.scriptJson?.let { jsonString ->
@@ -255,7 +304,7 @@ fun ControlPanelContent(
                                 }
                                 
                                 eventsToPlay?.let { events ->
-                                    AutoClickerService.instance?.playScript(ScriptData(events = events))
+                                    instance.playScript(ScriptData(events = events))
                                 }
                             }
                         }) {
@@ -281,14 +330,13 @@ fun ControlPanelContent(
                 
                 // Resize Handle
                 Icon(
-                    imageVector = Icons.Default.Menu, // Using Menu as a placeholder for resize handle
+                    imageVector = Icons.Default.DragHandle, // Using DragHandle as resize handle
                     contentDescription = "Resize",
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(4.dp)
                         .pointerInput(Unit) {
-                            detectDragGestures { change, dragAmount ->
-                                change.consume()
+                            detectDragGestures { _, dragAmount ->
                                 val newWidth = (panelWidth + dragAmount.x.dp).coerceIn(200.dp, 400.dp)
                                 val newHeight = (panelHeight + dragAmount.y.dp).coerceIn(200.dp, 600.dp)
                                 panelWidth = newWidth
@@ -311,6 +359,7 @@ fun PlaybackPanel(
 ) {
     var isExpanded by remember { mutableStateOf(false) }
     val playbackState by (com.example.service.AutoClickerService.instance?.playbackState ?: kotlinx.coroutines.flow.MutableStateFlow(com.example.service.AutoClickerService.State.IDLE)).collectAsState()
+    val playbackProgress by (com.example.service.AutoClickerService.instance?.playbackProgress ?: kotlinx.coroutines.flow.MutableStateFlow("")).collectAsState()
 
     Card(
         modifier = Modifier
@@ -338,6 +387,9 @@ fun PlaybackPanel(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(state.currentScriptName ?: "Playback", fontWeight = FontWeight.Bold)
+                if (playbackProgress.isNotEmpty()) {
+                    Text(playbackProgress, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
                 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (playbackState == com.example.service.AutoClickerService.State.PLAYING) {
@@ -346,18 +398,23 @@ fun PlaybackPanel(
                         }
                     } else {
                         TooltipIconButton(text = "Play", onClick = { 
-                            if (playbackState == com.example.service.AutoClickerService.State.PAUSED) {
-                                com.example.service.AutoClickerService.instance?.resumeScript()
+                            val instance = com.example.service.AutoClickerService.instance
+                            if (instance == null) {
+                                android.util.Log.e("AutoClicker", "AccessibilityService instance is null! Cannot play.")
                             } else {
-                                val eventsToPlay = state.scriptJson?.let { jsonString ->
-                                    try {
-                                        kotlinx.serialization.json.Json.decodeFromString<com.example.data.ScriptData>(jsonString).events
-                                    } catch (e: Exception) {
-                                        null
+                                if (playbackState == com.example.service.AutoClickerService.State.PAUSED) {
+                                    instance.resumeScript()
+                                } else {
+                                    val eventsToPlay = state.scriptJson?.let { jsonString ->
+                                        try {
+                                            kotlinx.serialization.json.Json.decodeFromString<com.example.data.ScriptData>(jsonString).events
+                                        } catch (e: Exception) {
+                                            null
+                                        }
                                     }
-                                }
-                                eventsToPlay?.let { events ->
-                                    com.example.service.AutoClickerService.instance?.playScript(com.example.data.ScriptData(events = events), loop = true)
+                                    eventsToPlay?.let { events ->
+                                        instance.playScript(com.example.data.ScriptData(events = events), loop = true)
+                                    }
                                 }
                             }
                         }) {
